@@ -4,6 +4,7 @@ import logging
 import io
 from pathlib import Path
 import random
+from typing import Callable
 
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.dispatcher.filters import IDFilter
@@ -21,9 +22,10 @@ logging.basicConfig(level=logging.INFO)
 minapova_id = int(os.getenv("MINAPOVA_ID"))
 admin_id = int(os.getenv("ADMIN_ID"))
 ids = [minapova_id, admin_id]
+jobs = {}
 
 
-async def send_message(path: Path):
+async def send_message(path: Path, tag: str, hour: str):
     text = messages.extract_random_text(path, random.randint(1, 3))
     pic_path = messages.get_picture()
     message = messages.get_message(text)
@@ -33,17 +35,45 @@ async def send_message(path: Path):
         file_ = types.InputFile(fbytes, "wazowski.png")
         await bot.send_photo(each, file_, message)
     print("sent!")
+    await schedule_job_randomly(send_message, path, tag, hour)
+
+
+def run_every_day(at: str, *args, **kwargs):
+    return aioschedule.every().day.at(at).do(*args, **kwargs)
+
+
+async def schedule_job_randomly(job: Callable, path: Path, tag: str, hour: str):
+    minutes = random.randint(1, 59)
+    new_time = f"{hour}:{str(minutes).zfill(2)}"
+    if jobs.get(tag):
+        aioschedule.cancel_job(jobs[tag])
+    jobs[tag] = run_every_day(
+        new_time,
+        job,
+        path=path,
+        tag=tag,
+        hour=hour)
+    print(aioschedule.jobs)
+    return jobs[tag]
 
 
 async def loop():
-    aioschedule.every().day.at("5:30").do(
-        send_message, messages.TEXTS_PATH / 'morning.txt')
-    aioschedule.every().day.at("10:00").do(
-        send_message, messages.TEXTS_PATH / 'day.txt')
-    aioschedule.every().day.at("14:30").do(
-        send_message, messages.TEXTS_PATH / 'evening.txt')
-    aioschedule.every().day.at("19:00").do(
-        send_message, messages.TEXTS_PATH / 'night.txt')
+    await schedule_job_randomly(send_message,
+                                path=messages.TEXTS_PATH / 'morning.txt',
+                                tag="morning",
+                                hour="5")
+    await schedule_job_randomly(send_message,
+                                path=messages.TEXTS_PATH / 'day.txt',
+                                tag="day",
+                                hour="10")
+    await schedule_job_randomly(send_message,
+                                path=messages.TEXTS_PATH / 'evening.txt',
+                                tag="evening",
+                                hour="14")
+    await schedule_job_randomly(send_message,
+                                path=messages.TEXTS_PATH / 'night.txt',
+                                tag="night",
+                                hour="19")
     while True:
         await aioschedule.run_pending()
         await asyncio.sleep(1)
